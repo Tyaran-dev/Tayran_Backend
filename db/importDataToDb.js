@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Airline from '../models/Airline.model.js';
 import { airlines } from './airlines.js';
-import Airport from "../models/Airport.model.js";
+import Airport from "../models/airport.model.js";
 import { airports } from "./fc-airports.js";
 
 // Replace with your MongoDB Atlas connection string

@@ -1,5 +1,5 @@
 import { ApiError } from "../../utils/apiError.js";
-import Airport from "../../models/Airport.model.js";
+import Airport from "../../models/airport.model.js";
 
 
 export const getAirports = async (req, res, next) => {

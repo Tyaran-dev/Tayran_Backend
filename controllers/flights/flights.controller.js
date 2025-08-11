@@ -1,7 +1,7 @@
 import { ApiError } from "../../utils/apiError.js";
 import { getAmadeusToken } from "../../utils/amadeus-token.js";
 import axios from "axios";
-import Airport from "../../models/Airport.model.js";
+import Airport from "../../models/airport.model.js";
 import Airline from "../../models/Airline.model.js"
 
 // Helper function to format duration from ISO format (PT1H50M) to readable format
