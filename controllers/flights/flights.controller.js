@@ -129,7 +129,6 @@ export const flightOffers = async (req, res, next) => {
             });
         });
 
-        console.log(response.data.data,"search here")
 
         // Fetch airport details for all unique codes
         const airports = await Airport.find({
@@ -149,6 +148,8 @@ export const flightOffers = async (req, res, next) => {
 
         // Transform Amadeus response to your desired format
         const formattedResponse = response.data.data.map((offer, index) => {
+            console.log(offer.price, "here is the price")
+
             // Create mapping string (CAI-MED|2025-05-28|XY-575||MED-CAI|2025-05-29|XY-576)
             const mapping = offer.itineraries.map(itinerary => {
                 const segment = itinerary.segments[0];
@@ -260,6 +261,7 @@ export const flightOffers = async (req, res, next) => {
                     it.segments.map(seg => seg.carrierCode)
                 ))];
 
+
             // Prepare the complete response object
             return {
                 mapping,
@@ -283,6 +285,7 @@ export const flightOffers = async (req, res, next) => {
                 flightNumber: offer.itineraries[0].segments[0].number,
                 stops: Math.max(...offer.itineraries.map(it => it.segments.length - 1)),
                 original_price: offer.price.total,
+                basePrice: parseFloat(offer.price.base),
                 price: parseFloat(offer.price.total),
                 currency: offer.price.currency,
                 refund: !offer.fareRules?.rules?.some(r => r.category === "REFUND" && r.notApplicable),
