@@ -38,7 +38,7 @@ export const ExecutePayment = async (req, res, next) => {
       `${apiBase}/v2/ExecutePayment`,
       {
         SessionId: sessionId,
-        InvoiceValue: invoiceValue,
+        InvoiceValue: 1,
         ProcessingDetails: {
           AutoCapture: false, // We will capture in webhook after booking success
         },
@@ -79,8 +79,8 @@ export const ExecutePayment = async (req, res, next) => {
 
 export const PaymentWebhook = async (req, res, next) => {
   try {
-
     const { InvoiceId, TransactionStatus } = req.body;
+    console.log(InvoiceId, TransactionStatus, "web hook fire");
 
     const tempBooking = await TempBookingTicket.findOne({ invoiceId: InvoiceId });
 
@@ -96,6 +96,8 @@ export const PaymentWebhook = async (req, res, next) => {
           `${process.env.BASE_URL}/flights/flight-booking`,
           tempBooking.bookingData
         );
+
+        console.log(response, "response from create order")
 
         if (response.status === 201) {
           // ✅ Capture payment on success
