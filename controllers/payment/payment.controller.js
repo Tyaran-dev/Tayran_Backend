@@ -93,7 +93,7 @@ export const PaymentWebhook = async (req, res, next) => {
       try {
         // Call your existing flight booking API
         const response = await axios.post(
-          `${process.env.BASE_URL}/flights/flight-booking`,
+          `${process.env.BASE_URL}/flights/flight-bookingggggggg`,
           tempBooking.bookingData
         );
 
