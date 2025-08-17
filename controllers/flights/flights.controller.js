@@ -401,31 +401,63 @@ export const flightPricing = async (req, res, next) => {
     }
 }
 
-
+// helper function to map your travelers to Amadeus format
+function transformTravelers(travelersFromDb) {
+    return travelersFromDb.map((t, index) => ({
+        id: (index + 1).toString(), // must be string
+        dateOfBirth: new Date(t.dateOfBirth).toISOString().split("T")[0], // YYYY-MM-DD
+        name: {
+            firstName: t.firstName,
+            lastName: t.lastName,
+        },
+        gender: t.gender?.toUpperCase() || "MALE",
+        contact: {
+            emailAddress: t.email,
+            phones: [
+                {
+                    deviceType: "MOBILE",
+                    countryCallingCode: t.phoneCode.replace("+", ""),
+                    number: t.phoneNumber,
+                },
+            ],
+        },
+        documents: [
+            {
+                documentType: "PASSPORT",
+                number: t.passportNumber,
+                expiryDate: new Date(t.passportExpiry).toISOString().split("T")[0],
+                issuanceCountry: t.issuanceCountry, // must be ISO code like "AL"
+                nationality: t.nationality,        // must be ISO code like "AL"
+                holder: true,
+            },
+        ],
+    }));
+}
 export const flightBooking = async (req, res, next) => {
     try {
+        console.log("flightBooking fired");
         const token = await getAmadeusToken();
         const { flightOffer, travelers, ticketingAgreement } = req.body;
         const baseUrl = process.env.AMADEUS_BASE_URL;
 
+        if (!flightOffer || !travelers) {
+            return next(new ApiError(400, "Missing flightOffer or travelers in request body"));
+        }
 
-        // Prepare the request payload
+        // Travelers are already transformed in webhook
         const payload = {
             data: {
-                type: 'flight-order',
+                type: "flight-order",
                 flightOffers: [flightOffer],
-                travelers: travelers
-            }
+                travelers,
+            },
         };
 
-        // Only add ticketingAgreement if it exists in the request body
         if (ticketingAgreement && Object.keys(ticketingAgreement).length > 0) {
             payload.data.ticketingAgreement = ticketingAgreement;
         }
 
-        if (!flightOffer || !travelers) {
-            return next(new ApiError(400, "Missing flightOffer or travelers in request body"));
-        }
+        console.log(payload, "payload to Amadeus");
 
         const response = await axios.post(
             `${baseUrl}/v1/booking/flight-orders`,
@@ -433,25 +465,25 @@ export const flightBooking = async (req, res, next) => {
             {
                 headers: {
                     Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
+                    "Content-Type": "application/json",
+                },
             }
         );
 
         res.status(201).json({
-            message: 'Flight order created successfully',
-            order: response.data
+            message: "Flight order created successfully",
+            order: response.data,
         });
-
     } catch (error) {
         console.error("Amadeus API Error:", error.response?.data || error.message);
-        next(new ApiError(
-            error.response?.status || 500,
-            error.response?.data?.errors?.[0]?.detail || "Error booking flights"
-        ));
+        next(
+            new ApiError(
+                error.response?.status || 500,
+                error.response?.data?.errors?.[0]?.detail || "Error booking flights"
+            )
+        );
     }
 };
-
 
 export const getFlightOrder = async (req, res, next) => {
     try {

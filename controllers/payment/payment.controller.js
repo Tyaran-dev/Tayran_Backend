@@ -1,6 +1,8 @@
 import axios from "axios";
 import { ApiError } from "../../utils/apiError.js";
 import TempBookingTicket from "../../models/TempBooking.js";
+import crypto from "crypto";
+
 
 export const InitiateSession = async (req, res, next) => {
   try {
@@ -77,27 +79,136 @@ export const ExecutePayment = async (req, res, next) => {
   }
 };
 
+
+// ---------------- Helper ----------------
+function formatDate(dateObj) {
+  if (!dateObj) return null;
+
+  // If already a string, try normal parsing
+  if (typeof dateObj === "string") {
+    const d = new Date(dateObj);
+    return isNaN(d.getTime()) ? null : d.toISOString().split("T")[0];
+  }
+
+  // Handle object { day, month, year }
+  if (typeof dateObj === "object" && dateObj.day && dateObj.month && dateObj.year) {
+    const { day, month, year } = dateObj;
+    // Pad month/day with leading zeros
+    const isoStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const d = new Date(isoStr);
+    return isNaN(d.getTime()) ? null : d.toISOString().split("T")[0];
+  }
+
+  return null;
+}
+
+function transformTravelers(travelersFromDb) {
+  return travelersFromDb.map((t, index) => ({
+    id: (index + 1).toString(), // Amadeus requires string id
+    dateOfBirth: formatDate(t.dateOfBirth),
+    name: {
+      firstName: t.firstName,
+      lastName: t.lastName,
+    },
+    gender: t.gender?.toUpperCase() || "MALE",
+    contact: {
+      emailAddress: t.email,
+      phones: [
+        {
+          deviceType: "MOBILE",
+          countryCallingCode: t.phoneCode?.replace("+", "") || "20",
+          number: t.phoneNumber,
+        },
+      ],
+    },
+    documents: [
+      {
+        documentType: "PASSPORT",
+        number: t.passportNumber,
+        expiryDate: formatDate(t.passportExpiry),
+        issuanceCountry: t.issuanceCountry, // ISO code
+        nationality: t.nationality, // ISO code
+        holder: true,
+      },
+    ],
+  }));
+}
+
 export const PaymentWebhook = async (req, res, next) => {
   try {
-    const { InvoiceId, TransactionStatus } = req.body;
-    console.log(InvoiceId, TransactionStatus, "web hook fire");
+    const secret = process.env.MYFATOORAH_WEBHOOK_SECRET;
+
+    // Step 1: Get raw body
+    const rawBody = JSON.stringify(req.body);
+    // Step 2: Get signature from header
+    const signature = req.headers["myfatoorah-signature"];
+    if (!signature) {
+      return res.status(400).json({ error: "Missing signature" });
+    }
+    // Step 3: Generate HMAC SHA256 using your secret key
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody, "utf8")
+      .digest("hex");
+    // Step 4: Compare signatures
+    if (signature !== expectedSignature) {
+      console.error("⚠️ Invalid webhook signature");
+      return res.status(401).json({ error: "Invalid signature" });
+    }
+    console.log("✅ Webhook verified");
+
+
+    // MyFatoorah sends { Event: {...}, Data: {...} }
+    const { Data } = req.body;
+    if (!Data) {
+      console.error("⚠️ Invalid webhook payload:", req.body);
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    // Extract needed info
+    const InvoiceId = Data?.Invoice?.Id; // MyFatoorah Invoice ID
+    const InvoiceStatus = Data?.Invoice?.Status; // e.g., PAID
+    const TransactionStatus = Data?.Transaction?.Status; // e.g., SUCCESS / FAILED
+
+    console.log(
+      `Webhook fired: Invoice ${InvoiceId}, InvoiceStatus=${InvoiceStatus}, TransactionStatus=${TransactionStatus}`
+    );
 
     const tempBooking = await TempBookingTicket.findOne({ invoiceId: InvoiceId });
 
     if (!tempBooking) {
       console.error("No booking data found for invoice:", InvoiceId);
       return res.status(404).json({ error: "Booking not found" });
-    };
+    }
 
     if (TransactionStatus === "Authorize") {
       try {
-        // Call your existing flight booking API
+        // Raw data saved in Mongo
+        const rawBooking = tempBooking.bookingData;
+
+        // ✅ Transform travelers BEFORE sending to Amadeus
+        const transformedTravelers = transformTravelers(rawBooking.travelers);
+
+        console.log(transformedTravelers, "after format")
+
+        // Construct correct payload
+        const bookingPayload = {
+          flightOffer: rawBooking.flightOffer,
+          travelers: transformedTravelers,
+          ticketingAgreement: rawBooking.ticketingAgreement || {}, // optional
+        };
+
+        console.log(bookingPayload, "bookingPayload");
+
         const response = await axios.post(
           `${process.env.BASE_URL}/flights/flight-booking`,
-          tempBooking.bookingData
+          bookingPayload
         );
 
-        console.log(response, "response from create order")
+        console.log(
+          response.data,
+          "response from /flights/flight-booking"
+        );
 
         if (response.status === 201) {
           // ✅ Capture payment on success
@@ -114,9 +225,11 @@ export const PaymentWebhook = async (req, res, next) => {
           });
           console.log("Booking failed, payment released:", InvoiceId);
         }
-
       } catch (err) {
-        console.error("Booking API failed, releasing payment:", err?.response?.data || err.message);
+        console.error(
+          "Booking API failed, releasing payment:",
+          err?.response?.data || err.message
+        );
 
         // Release payment on error
         await axios.post(`${process.env.BASE_URL}/payment/releaseAmount`, {
@@ -125,22 +238,22 @@ export const PaymentWebhook = async (req, res, next) => {
         });
       }
     }
+
     if (TransactionStatus === "Failed") {
       console.log("Payment failed for invoice:", InvoiceId);
-      // Optional: mark booking failed in DB
+      // Optional: update DB status
     }
 
-    // Cleanup: remove temp booking record
+    // Cleanup: remove temp booking record // 
     await TempBookingTicket.deleteOne({ invoiceId: InvoiceId });
 
     return res.status(200).json({ message: "Webhook processed" });
-
-
   } catch (err) {
     console.error("Webhook error:", err?.response?.data || err.message);
     return res.status(500).json({ error: "Server error" });
   }
-}
+};
+
 
 export const GetPaymentStatus = async (req, res, next) => {
   try {
