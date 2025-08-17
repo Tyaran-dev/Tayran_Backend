@@ -183,13 +183,12 @@ export const PaymentWebhook = async (req, res, next) => {
 
     if (TransactionStatus === "Authorize") {
       try {
+
         // Raw data saved in Mongo
         const rawBooking = tempBooking.bookingData;
 
         // ✅ Transform travelers BEFORE sending to Amadeus
         const transformedTravelers = transformTravelers(rawBooking.travelers);
-
-        console.log(transformedTravelers, "after format")
 
         // Construct correct payload
         const bookingPayload = {
@@ -197,8 +196,6 @@ export const PaymentWebhook = async (req, res, next) => {
           travelers: transformedTravelers,
           ticketingAgreement: rawBooking.ticketingAgreement || {}, // optional
         };
-
-        console.log(bookingPayload, "bookingPayload");
 
         const response = await axios.post(
           `${process.env.BASE_URL}/flights/flight-booking`,
