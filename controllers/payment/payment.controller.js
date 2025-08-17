@@ -92,9 +92,11 @@ export const PaymentWebhook = async (req, res, next) => {
     if (TransactionStatus === "Authorize") {
       try {
         // Call your existing flight booking API
+        const bookingPayload = JSON.parse(JSON.stringify(tempBooking.bookingData));
+        
         const response = await axios.post(
           `${process.env.BASE_URL}/flights/flight-booking`,
-          tempBooking.bookingData
+          bookingPayload
         );
 
         console.log(response, "response from create order")
