@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from "cors"
+import bodyParser from "body-parser";
 
 import authRoute from "./routes/auth/auth.route.js";
 import airportRoute from './routes/flights/airport.route.js';
@@ -16,6 +17,15 @@ dotenv.config();
 app.use(cors())
 
 const PORT = process.env.PORT || 3000;
+
+// Capture raw body for signature verification
+app.use(
+  bodyParser.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  })
+);
 
 app.use(express.json());
 

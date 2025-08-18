@@ -134,46 +134,67 @@ function transformTravelers(travelersFromDb) {
   }));
 }
 
+
 export const PaymentWebhook = async (req, res, next) => {
   try {
     const secret = process.env.MYFATOORAH_WEBHOOK_SECRET;
 
-    // Step 1: Get raw body
-    const rawBody = JSON.stringify(req.body);
-    // Step 2: Get signature from header
+    // 🔹 Extract body & signature
     const signature = req.headers["myfatoorah-signature"];
+    const { Data } = req.body;
+
     if (!signature) {
       return res.status(400).json({ error: "Missing signature" });
     }
-    // Step 3: Generate HMAC SHA256 using your secret key
+    if (!Data) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    // 🔹 Step 1: Build ordered string from Data
+    const orderedKeys = Object.keys(Data).sort();
+    const keyValuePairs = orderedKeys.map((key) => {
+      const value = Data[key] === null ? "" : Data[key];
+      return `${key}=${value}`;
+    });
+    const dataString = keyValuePairs.join(",");
+
+    // 🔹 Step 2: Generate HMAC-SHA256 (base64)
     const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(rawBody, "utf8")
-      .digest("hex");
-    // Step 4: Compare signatures
+      .createHmac("sha256", Buffer.from(secret, "utf8"))
+      .update(dataString, "utf8")
+      .digest("base64");
+
+    console.log("🔹 Ordered Data String:", dataString);
+    console.log("🔹 Signature from header:", signature);
+    console.log("🔹 Expected signature:", expectedSignature);
+
+    // 🔹 Step 3: Verify signature
     if (signature !== expectedSignature) {
       console.error("⚠️ Invalid webhook signature");
       return res.status(401).json({ error: "Invalid signature" });
     }
     console.log("✅ Webhook verified");
 
+    // 🔹 Extract details
+    const InvoiceId = Data?.Invoice?.Id;
+    const InvoiceStatus = Data?.Invoice?.Status;
+    const TransactionStatus = Data?.Transaction?.Status;
 
-    // MyFatoorah sends { Event: {...}, Data: {...} }
-    const { Data } = req.body;
-    if (!Data) {
-      console.error("⚠️ Invalid webhook payload:", req.body);
+    if (!InvoiceId) {
+      console.error("⚠️ Missing InvoiceId in payload");
       return res.status(400).json({ error: "Invalid payload" });
     }
 
-    // Extract needed info
-    const InvoiceId = Data?.Invoice?.Id; // MyFatoorah Invoice ID
-    const InvoiceStatus = Data?.Invoice?.Status; // e.g., PAID
-    const TransactionStatus = Data?.Transaction?.Status; // e.g., SUCCESS / FAILED
+    if (TransactionStatus !== "Authorize") {
+      console.log(`Ignoring webhook, status = ${TransactionStatus}`);
+      return res.status(200).json({ message: "Ignored non-authorize event" });
+    }
 
     console.log(
       `Webhook fired: Invoice ${InvoiceId}, InvoiceStatus=${InvoiceStatus}, TransactionStatus=${TransactionStatus}`
     );
 
+    // 🔹 Lookup booking
     const tempBooking = await TempBookingTicket.findOne({ invoiceId: InvoiceId });
 
     if (!tempBooking) {
@@ -183,18 +204,13 @@ export const PaymentWebhook = async (req, res, next) => {
 
     if (TransactionStatus === "Authorize") {
       try {
-
-        // Raw data saved in Mongo
         const rawBooking = tempBooking.bookingData;
-
-        // ✅ Transform travelers BEFORE sending to Amadeus
         const transformedTravelers = transformTravelers(rawBooking.travelers);
 
-        // Construct correct payload
         const bookingPayload = {
           flightOffer: rawBooking.flightOffer,
           travelers: transformedTravelers,
-          ticketingAgreement: rawBooking.ticketingAgreement || {}, // optional
+          ticketingAgreement: rawBooking.ticketingAgreement || {},
         };
 
         const response = await axios.post(
@@ -202,33 +218,26 @@ export const PaymentWebhook = async (req, res, next) => {
           bookingPayload
         );
 
-        console.log(
-          response.data,
-          "response from /flights/flight-booking"
-        );
+        console.log("✈️ Booking API Response:", response.data);
 
         if (response.status === 201) {
-          // ✅ Capture payment on success
           await axios.post(`${process.env.BASE_URL}/payment/captureAmount`, {
             Key: InvoiceId,
             KeyType: "InvoiceId",
           });
-          console.log("Booking success, payment captured:", InvoiceId);
+          console.log("✅ Booking success, payment captured:", InvoiceId);
         } else {
-          // ❌ Release payment if booking failed
           await axios.post(`${process.env.BASE_URL}/payment/releaseAmount`, {
             Key: InvoiceId,
             KeyType: "InvoiceId",
           });
-          console.log("Booking failed, payment released:", InvoiceId);
+          console.log("❌ Booking failed, payment released:", InvoiceId);
         }
       } catch (err) {
         console.error(
           "Booking API failed, releasing payment:",
           err?.response?.data || err.message
         );
-
-        // Release payment on error
         await axios.post(`${process.env.BASE_URL}/payment/releaseAmount`, {
           Key: InvoiceId,
           KeyType: "InvoiceId",
@@ -237,11 +246,10 @@ export const PaymentWebhook = async (req, res, next) => {
     }
 
     if (TransactionStatus === "Failed") {
-      console.log("Payment failed for invoice:", InvoiceId);
-      // Optional: update DB status
+      console.log("❌ Payment failed for invoice:", InvoiceId);
     }
 
-    // Cleanup: remove temp booking record // 
+    // 🔹 Cleanup
     await TempBookingTicket.deleteOne({ invoiceId: InvoiceId });
 
     return res.status(200).json({ message: "Webhook processed" });
@@ -250,6 +258,7 @@ export const PaymentWebhook = async (req, res, next) => {
     return res.status(500).json({ error: "Server error" });
   }
 };
+
 
 
 export const GetPaymentStatus = async (req, res, next) => {

@@ -402,37 +402,7 @@ export const flightPricing = async (req, res, next) => {
 }
 
 // helper function to map your travelers to Amadeus format
-function transformTravelers(travelersFromDb) {
-    return travelersFromDb.map((t, index) => ({
-        id: (index + 1).toString(), // must be string
-        dateOfBirth: new Date(t.dateOfBirth).toISOString().split("T")[0], // YYYY-MM-DD
-        name: {
-            firstName: t.firstName,
-            lastName: t.lastName,
-        },
-        gender: t.gender?.toUpperCase() || "MALE",
-        contact: {
-            emailAddress: t.email,
-            phones: [
-                {
-                    deviceType: "MOBILE",
-                    countryCallingCode: t.phoneCode.replace("+", ""),
-                    number: t.phoneNumber,
-                },
-            ],
-        },
-        documents: [
-            {
-                documentType: "PASSPORT",
-                number: t.passportNumber,
-                expiryDate: new Date(t.passportExpiry).toISOString().split("T")[0],
-                issuanceCountry: t.issuanceCountry, // must be ISO code like "AL"
-                nationality: t.nationality,        // must be ISO code like "AL"
-                holder: true,
-            },
-        ],
-    }));
-}
+
 export const flightBooking = async (req, res, next) => {
     try {
         console.log("flightBooking fired");
