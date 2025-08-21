@@ -104,19 +104,35 @@ export const flightOffers = async (req, res, next) => {
             }
         );
 
-        const carriersCodes = Object.keys(response.data?.dictionaries?.carriers);
+        // Check if Amadeus returned data
+        if (!response.data?.data || response.data.data.length === 0) {
+            return res.status(200).json({
+                success: true,
+                data: [],
+                filters: {
+                    carriers: [],
+                    aircraft: {},
+                    currencies: {},
+                    locations: {}
+                }
+            });
+        }
 
-        const airlineDocs = await Airline.find({
-            airLineCode: { $in: carriersCodes }
-        });
+        // Safe extract carriers
+        const carriersCodes = Object.keys(response.data.dictionaries?.carriers || {});
 
-        const airlineMap = airlineDocs.map((airline, index) => {
-            return {
-                ...airline._doc,
-                name: lang === "en" ? airline._doc.airLineName : airline._doc.airlineNameAr,
-                image: `https://assets.wego.com/image/upload/h_240,c_fill,f_auto,fl_lossy,q_auto:best,g_auto/v20240602/flights/airlines_square/${airline.airLineCode}.png`
-            }
-        });
+        // fetch airline docs only if codes exist
+        const airlineDocs = carriersCodes.length
+            ? await Airline.find({ airLineCode: { $in: carriersCodes } })
+            : [];
+
+        // build map
+        const airlineMap = airlineDocs.map((airline) => ({
+            ...airline._doc,
+            name: lang === "en" ? airline._doc.airLineName : airline._doc.airlineNameAr,
+            image: `https://assets.wego.com/image/upload/h_240,c_fill,f_auto,fl_lossy,q_auto:best,g_auto/v20240602/flights/airlines_square/${airline.airLineCode}.png`
+        }));
+
 
         // Extract all unique airport codes from the response
         const airportCodes = new Set();
