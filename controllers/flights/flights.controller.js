@@ -104,7 +104,7 @@ export const flightOffers = async (req, res, next) => {
             }
         );
 
-        const carriersCodes = Object.keys(response.data.dictionaries?.carriers);
+        const carriersCodes = Object.keys(response.data?.dictionaries?.carriers);
 
         const airlineDocs = await Airline.find({
             airLineCode: { $in: carriersCodes }
@@ -285,7 +285,7 @@ export const flightOffers = async (req, res, next) => {
                 flightNumber: offer.itineraries[0].segments[0].number,
                 stops: Math.max(...offer.itineraries.map(it => it.segments.length - 1)),
                 original_price: offer.price.total,
-                basePrice: parseFloat(offer.price.base),
+                basePrice: offer.price.base,
                 price: parseFloat(offer.price.total),
                 currency: offer.price.currency,
                 refund: !offer.fareRules?.rules?.some(r => r.category === "REFUND" && r.notApplicable),
